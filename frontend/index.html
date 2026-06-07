@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Рулетка 🎰</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #1a1a2e; display: flex; flex-direction: column;
+           align-items: center; justify-content: center; min-height: 100vh;
+           font-family: Arial, sans-serif; color: white; }
+    h2 { margin-bottom: 16px; font-size: 20px; color: gold; }
+    .wheel-wrap { position: relative; width: 320px; height: 320px; margin: 0 auto; }
+    #pointer { position: absolute; top: -18px; left: 50%;
+               transform: translateX(-50%);
+               width: 0; height: 0;
+               border-left: 14px solid transparent;
+               border-right: 14px solid transparent;
+               border-top: 28px solid gold; z-index: 10; }
+    #wheel { border-radius: 50%;
+             box-shadow: 0 0 30px rgba(255,215,0,0.6);
+             display: block; }
+    #spin-btn { margin-top: 28px; padding: 16px 48px; font-size: 20px;
+                background: linear-gradient(135deg, #f093fb, #f5576c);
+                border: none; border-radius: 30px; color: white;
+                cursor: pointer; font-weight: bold;
+                box-shadow: 0 4px 15px rgba(245,87,108,0.5); }
+    #spin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #result { margin-top: 18px; font-size: 24px; font-weight: bold;
+              min-height: 36px; color: gold; text-align: center; }
+    #status { margin-top: 8px; font-size: 14px; color: #aaa; min-height: 20px; }
+  </style>
+</head>
+<body>
+<h2>🎰 Рулетка звёзд</h2>
+<div class="wheel-wrap">
+  <div id="pointer"></div>
+  <canvas id="wheel" width="320" height="320"></canvas>
+</div>
+<button id="spin-btn" onclick="startPayment()">🎰 Крутить (25 ⭐)</button>
+<div id="result"></div>
+<div id="status"></div>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
+
+// Сегменты с emoji подарков
+const SEGMENTS = [
+  { label: "15⭐",  color: "#FF6B6B", emoji: "💝" },
+  { label: "15⭐",  color: "#FF8E8E", emoji: "🧸" },
+  { label: "25⭐",  color: "#4ECDC4", emoji: "🌹" },
+  { label: "25⭐",  color: "#6ED8D1", emoji: "🎁" },
+  { label: "50⭐",  color: "#45B7D1", emoji: "💐" },
+  { label: "50⭐",  color: "#5BC5D8", emoji: "🚀" },
+  { label: "100⭐", color: "#96CEB4", emoji: "💎" },
+  { label: "100⭐", color: "#AAD8C4", emoji: "💍" },
+];
+
+const canvas = document.getElementById("wheel");
+const ctx = canvas.getContext("2d");
+const SIZE = 320;
+const cx = SIZE / 2, cy = SIZE / 2, r = 150;
+let currentAngle = -Math.PI / 2;
+let isSpinning = false;
+let pendingPaymentId = null;
+
+function drawWheel(rotation) {
+  ctx.clearRect(0, 0, SIZE, SIZE);
+  const arc = (2 * Math.PI) / SEGMENTS.length;
+
+  SEGMENTS.forEach((seg, i) => {
+    const start = rotation + i * arc;
+    const end = start + arc;
+
+    // Сектор
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, start, end);
+    ctx.closePath();
+    ctx.fillStyle = seg.color;
+    ctx.fill();
+    ctx.strokeStyle = "#1a1a2e";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Emoji
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(start + arc / 2);
+    ctx.font = "22px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(seg.emoji, r * 0.65, 0);
+    ctx.restore();
+
+    // Текст с наградой
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(start + arc / 2);
+    ctx.font = "bold 12px Arial";
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(seg.label, r * 0.88, 0);
+    ctx.restore();
+  });
+  // Центральный круг
+  ctx.beginPath();
+  ctx.arc(cx, cy, 22, 0, 2 * Math.PI);
+  ctx.fillStyle = "#1a1a2e";
+  ctx.fill();
+  ctx.strokeStyle = "gold";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  // Звезда в центре
+  ctx.font = "18px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("⭐", cx, cy);
+}
+
+function animateTo(targetIndex, onDone) {
+  const arc = (2 * Math.PI) / SEGMENTS.length;
+  const targetAngle = -Math.PI / 2 - (targetIndex * arc + arc / 2);
+  const spins = 6 * 2 * Math.PI;
+  const finalAngle = targetAngle - spins;
+  const startAngle = currentAngle;
+  const delta = finalAngle - startAngle;
+  const duration = 4500;
+  const startTime = performance.now();
+
+  function easeOut(t) { return 1 - Math.pow(1 - t, 4); }
+
+  function frame(now) {
+    const t = Math.min((now - startTime) / duration, 1);
+    currentAngle = startAngle + delta * easeOut(t);
+    setTimeout(() => drawWheel(currentAngle), 100);
+    if (t < 1) {
+      requestAnimationFrame(frame);
+    } else {
+      currentAngle = finalAngle;
+      onDone();
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+function startPayment() {
+  if (isSpinning) return;
+  // Открываем инвойс через Telegram
+  tg.openInvoice("spin_invoice", (status) => {
+    if (status === "paid") {
+      document.getElementById("status").textContent = "Оплата прошла! Крутим...";
+      doSpin("paid_" + Date.now());
+    } else {
+      document.getElementById("status").textContent = "Оплата отменена.";
+    }
+  });
+}
+
+async function doSpin(paymentId) {
+  isSpinning = true;
+  document.getElementById("spin-btn").disabled = true;
+  document.getElementById("result").textContent = "";
+
+  try {
+    const userId = tg.initDataUnsafe?.user?.id || 0;
+    const res = await fetch("/spin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, payment_id: paymentId })
+    });
+    const data = await res.json();
+
+    animateTo(data.segment_index, () => {
+      document.getElementById("result").textContent =
+        🎉 ${SEGMENTS[data.segment_index].emoji} Вы выиграли ${data.prize_stars} звёзд!;
+      document.getElementById("status").textContent = "";
+      isSpinning = false;
+      document.getElementById("spin-btn").disabled = false;
+    });
+  } catch (e) {
+    document.getElementById("result").textContent = "❌ Ошибка. Попробуйте снова.";
+    isSpinning = false;
+    document.getElementById("spin-btn").disabled = false;
+  }
+}
+
+// Первоначальная отрисовка
+drawWheel(currentAngle);
+</script>
+</body>
+</html>
